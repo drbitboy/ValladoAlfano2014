@@ -25,16 +25,20 @@ class VA2014:
     ### Extract ECI Positions and ECI velocities from 6-element ECI states
     self.rChfEci,self.velChfEci = stateChf[:3], stateChf[3:]
     self.rDepEci,self.velDepEci = StateDep[:3], StateDep[3:]
+    self.mu = mu
 
+    ####################################################################
+    ### Equations (1)
     ### Convert chief position and velocity to RSW1 unit vectors
     self.rHatEci = sp.vhat(self.rChfEci)
     self.wHatEci = sp.ucrss(self.rChfEci,self.velChfEci)
     ### W cross R, not R cross W which is in paper
     self.sHatEci = sp.ucrss(self.wHatEci,self.rHatEci)
 
+    ####################################################################
+    ### Equations (2)
     ### Combine RSW1 unit vector into [Rhat|Shat|What]1 matrix
     self.mtxEci2Rsw1 = [self.rHatEci,self.sHatEci,self.wHatEci]
-
     ### Transform chief position and velocity to RSW1 frame
     self.rChfRsw1,self.velChfRsw1,self.rDepRsw1,self.velDepRsw1 = [
        sp.mxv(self.mtxEci2Rsw1,v)
@@ -42,10 +46,14 @@ class VA2014:
        [self.rChfEci,self.velChfEci,self.rDepEci,self.velDepEci]
        ]
 
+    ####################################################################
+    ### Equations (3)
     ### Get delta-lambda to deputy as RA from (Radius,RA,DEC)
     ###   returned by recrad.
     self.deltaLambdaDep = sp.recrad(self.rDepRsw1)[1]
 
+    ####################################################################
+    ### Equations (4)
     ### Semi-major axis and eccentricity
     vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
     pChf = sp.vdot(vHChf,vHChf) / mu
@@ -57,8 +65,23 @@ class VA2014:
     else              : self.vEccHatChf = sp.vhat(self.rChfRsw1)
 
     ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
-    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,mu = sp.oscelt(stateChf,0.,mu)
+    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,mu)
     self.aChfSpice = self.rpChf / (1 - self.eccChfSpice)
+
+    ####################################################################
+    ### Equations (5)
+    ### True anomaly posiitons
+    self.lambdaPerigee = sp.recrad(self.vEccHatChf)[1]
+    self.nu1 = (sp.twopi() - sp.lambdaPerigee) % sp.twopi()
+    self.nu2 = (sp.twopi() + self.deltaLambdaDep - sp.lambdaPerigee) % sp.twopi()
+
+    ####################################################################
+    ### Equations (6)
+    rChf2 = pChf / (1. + (self.eccChf * cos(self.nu2)))
+    pHat = self.vEccHatChf
+    qHat = sp.ucrss([0.,0.,1.],pHat)
+    self.rChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(cos(nu2),pHat),sp.vscl(sin(nu2),qHat)))
+    self.vChfPqw2 = sp.vscl(-math.sqrt(mu,pChf),sp.vadd(sp.vscl(sin(nu2),pHat),sp.vscl(self.eccChf+cos(nu2),qHat)))
 
 ########################################################################
 if "__main__"==__name__:
