@@ -15,17 +15,22 @@ class VA2014:
     self.rChfEci,self.velChfEci = stateChf[:3], stateChf[3:]
     self.rDepEci,self.velDepEci = StateDep[:3], StateDep[3:]
 
-    ### Convert chief position and velocity to [Rhat|Shat|What]1 matrix
+    ### Convert chief position and velocity to RSW1 unit vectors
     self.rHatEci = sp.vhat(self.rChfEci)
-    self.wHatEci = sp.vcrss(self.rChfEci,self.velChfEci)
-    self.sHatEci = sp.vcrss(self.rHatEci,self.wHatEci)
+    self.wHatEci = sp.ucrss(self.rChfEci,self.velChfEci)
+    self.sHatEci = sp.ucrss(self.rHatEci,self.wHatEci)
+
+    ### Combine RSW1 unit vector into [Rhat|Shat|What]1 matrix
     self.mtxEci2Rsw1 = [self.rHatEci,self.wHatEci,self.sHatEci]
 
+    ### Transform chief position and velocity to RSW1 frame
     self.rChfRsw1,self.velChfRsw1,self.rDepRsw1,self.velDepRsw1 = [sp.mxv(self.mtxEci2Rsw1,v)
        for v in 
        [self.rChfEci,self.velChfEci,self.rDepEci,self.velDepEci]
        ]
 
+
+########################################################################
 if "__main__"==__name__:
  if len(sys.argv[1:])!=12:
     arg12 = '1 1 1  .1 .1 -.1   1 1.1 1.1  .1 -.1 +.1'.split()
