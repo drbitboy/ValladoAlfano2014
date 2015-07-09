@@ -56,6 +56,10 @@ class VA2014:
     if eccChfSquared>0: self.vEccHatChf = sp.vhat(vEccChf)
     else              : self.vEccHatChf = sp.vhat(self.rChfRsw1)
 
+    ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
+    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,mu = sp.oscelt(stateChf,0.,mu)
+    self.aChfSpice = self.rpChf / (1 - self.eccChfSpice)
+
 ########################################################################
 if "__main__"==__name__:
 
