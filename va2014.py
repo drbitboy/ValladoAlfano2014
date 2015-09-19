@@ -68,18 +68,20 @@ class VA2014:
     ###            the semi-major axis
     ### - self.eccChf = eccentricity
     ### - self.aChf = length of semi-major axis
+    ### - self.bChf = length of semi-minor axis
     vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
     pChf = sp.vdot(vHChf,vHChf) / mu
     vEccChf = sp.vsub(sp.vscl(1./mu,sp.vcrss(self.velChfRsw1,vHChf)),sp.vhat(self.rChfRsw1))
     self.eccChfSquared = sp.vdot(vEccChf,vEccChf)
     self.eccChf = math.sqrt(self.eccChfSquared)
     self.aChf = pChf / (1. - self.eccChfSquared)
+    self.bChf = pChf / math.sqrt(1. - self.eccChfSquared)
     if self.eccChfSquared>0: self.vEccHatChf = sp.vhat(vEccChf)
     else              : self.vEccHatChf = sp.vhat(self.rChfRsw1)
 
     ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
     self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,mu)
-    self.aChfSpice = self.rpChf / (1 - self.eccChfSpice)
+    self.aChfSpice = self.rpChf / (1. - self.eccChfSpice)
 
     ####################################################################
     ### Equations (5)
@@ -99,7 +101,7 @@ class VA2014:
 
     ####################################################################
     ### Equations (7)
-    ### Convert from PWQ2 to RSW2
+    ### Convert from PQW2 to RSW2
     self.mtxPqw2toRsw2 = RVtoRSW(self.rChfPqw2,self.rChfPqw2)
     self.rChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.rChfPqw2)
     self.velChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.vChfPqw2)
@@ -118,21 +120,16 @@ class VA2014:
     ### Equations (9)
     ### Transform Deputy vectors from SEZ to EQCM frame
 
-    ### 1) Convert True Anomalies 1 and 2 to Eccentric Anomalies 1 and 2
-    ###    - tan(True Anom) = (b/a) tan(Eccentric Anom)
-    ###      - tan(Ecc Anom) = (a/b) tan(True Anom)
-    ###      - Ecc Anom = atan2( (a/b) sin(True Anom), cos(True Anom)
-    ###      - a/b = 1 / sqrt(1 - ecc^2)
-    ###        - Possible exceptions:  divBy0; domain error.
-    aOVERb = 1 / math.sqrt(1 - self.eccChfSquared)
-    self.eccAnom1 = math.atan2(math.sin(self.trueAnom1) * aOVERb, math.cos(self.trueAnom1))
-    self.eccAnom2 = math.atan2(math.sin(self.trueAnom2) * aOVERb, math.cos(self.trueAnom2))
+    ### 9.1) Convert True Anomalies 1 and 2 to Eccentric Anomalies 1 and 2
+    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
+    ### - Possible exceptions:  divBy0; domain error.
+    self.eccAnom1 = math.atan2(math.sqrt(1. - self.eccChfSquared) * math.sin(self.trueAnom1), self.eccChf + math.cos(self.trueAnom1))
+    self.eccAnom2 = math.atan2(math.sqrt(1. - self.eccChfSquared) * math.sin(self.trueAnom2), self.eccChf + math.cos(self.trueAnom2))
 
-    ### 2) Get arc length between those Eccentric Anomalies
-    b = self.aChf / aOVERb
-    arcLength1to2 = b * orbit_IEISK(self.eccChfSquared, self.eccAnom1, self.eccAnom2)
+    ### 9.2) Get arc length between those Eccentric Anomalies
+    arcLength1to2 = self.bChf * orbit_IEISK(self.eccChfSquared, self.eccAnom1, self.eccAnom2)
 
-    ### 3) Relate the deputy relative to chief at point 2 and find the answer
+    ### 9.3) Relate the deputy relative to chief at point 2
     self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iR]
                             , arcLength1to2
                             , self.deltaPhiDep * rChf2
