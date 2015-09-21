@@ -26,14 +26,17 @@ iX, iY, iZ = iR, iSrsw, iW = iSsez, iE, iZsez = iRadius, iRA, iDEC = xrange(3)
 
 ########################################################################
 class VA2014:
-  def __init__(self,stateChf,stateDep,mu):
-    """
-    mu = GM, km**3 s**-2
+  def __init__(self,stateChf,mu,stateDep=None):
+    """Make chief-only calculations.  Save deputy-based calculations for
+Deputy() method below; call it now if stateDep is provided
+
+mu = GM, km**3 s**-2
+
 """
     ####################################################################
     ### Extract ECI Positions and ECI velocities from 6-element ECI states
+    ### Save mu in self object
     self.rChfEci,self.velChfEci = stateChf[:3], stateChf[3:]
-    self.rDepEci,self.velDepEci = stateDep[:3], stateDep[3:]
     self.mu = mu
 
     ####################################################################
@@ -42,14 +45,88 @@ class VA2014:
     self.mtxEci2Rsw1 = RVtoRSW(self.rChfEci,self.velChfEci)
 
     ####################################################################
-    ### Transform chief and deputy positions and velocityiest to RSW1 frame
+    ### Transform chief position and velocity to RSW1 frame
     (self.rChfRsw1
     ,self.velChfRsw1
-    ,self.rDepRsw1
+    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
+          for v in 
+          [self.rChfEci,self.velChfEci]
+        ]
+
+    ####################################################################
+    ### Equations (3) - postponed to deputy calculation
+
+    ####################################################################
+    ### Equations (4)
+    ### Eccentricity and semi-major axis
+    ### - vHChf = momentum vector
+    ### - pChf = semiparameter or semilatus rectum = distance from the
+    ###            primary focus to the orbit, measured perpendicular to
+    ###            the semi-major axis
+    ### - self.eccChf = Eccentricity (also Elliptic Modulus, k)
+    ### - self.aChf = length of semi-major axis
+    ### - self.bChf = length of semi-minor axis
+    vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
+    self.pChf = sp.vdot(vHChf,vHChf) / self.mu
+    vEccChf = sp.vsub(sp.vscl(1./self.mu,sp.vcrss(self.velChfRsw1,vHChf)),sp.vhat(self.rChfRsw1))
+    self.eccChfSquared = sp.vdot(vEccChf,vEccChf)
+    self.eccChf = math.sqrt(self.eccChfSquared)
+    self.bOverA = math.sqrt(1 - self.eccChfSquared)
+    self.aChf = self.pChf / (1. - self.eccChfSquared)
+    self.bChf = self.pChf / self.bOverA
+    if self.eccChfSquared>0.: self.vEccHatChf = sp.vhat(vEccChf)
+    else                    : self.vEccHatChf = sp.vhat(self.rChfRsw1)
+
+    ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
+    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,self.mu)
+    self.aChfSpice = self.rpChf / (1. - self.eccChfSpice)
+
+    ####################################################################
+    ### Equations (5)
+    ### Chief True anomaly posiiton
+    ### Deputy True anomaly postponed to deputy calculation
+    self.lambdaPerigee = sp.recrad(self.vEccHatChf)[1]
+    self.trueAnom1 = (sp.twopi() - self.lambdaPerigee) % sp.twopi()
+
+    ####################################################################
+    ### Equations (6 through 9) - postponed to deputy calculation
+
+    ####################################################################
+    ### Equations (9) - chief only
+
+    ### 9.1) Convert True Anomaly 1 (chief) to Eccentric Anomaly
+    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
+    ### - Possible exceptions:  divBy0; domain error.
+    self.eccAnom1 = math.atan2(self.bOverA * math.sin(self.trueAnom1)
+                              , self.eccChf + math.cos(self.trueAnom1)
+                              )
+
+    ####################################################################
+    ### Complete conversion to EQCM for Deputy if Deputy state is present
+
+    if not (stateDep is None): self.Deputy(stateDep)
+
+
+########################################################################
+  def Deputy(self,stateDep):
+    """Make depyty-based calculations.  Chief-only calculations were
+performed in __init__() method above
+
+"""
+    ####################################################################
+    ### Extract Deputy ECI Position and velocity from 6-element deputy
+    ###   ECI state
+    self.rDepEci,self.velDepEci = stateDep[:3], stateDep[3:]
+
+    ####################################################################
+    ### Equations (1) and (2)
+    ### Convert deputy position and velocity to RSW using
+    ###   [Rhat|Shat|What]1 matrix
+    (self.rDepRsw1
     ,self.velDepRsw1
     ) = [ sp.mxv(self.mtxEci2Rsw1,v)
           for v in 
-          [self.rChfEci,self.velChfEci,self.rDepEci,self.velDepEci]
+          [self.rDepEci,self.velDepEci]
         ]
 
     ####################################################################
@@ -60,44 +137,20 @@ class VA2014:
     self.deltaLambdaDep = sp.recrad(self.rDepRsw1)[iRA]
 
     ####################################################################
-    ### Equations (4)
-    ### Eccentricity and semi-major axis
-    ### - vHChf = momentum vector
-    ### - pChf = semiparameter or semilatus rectum = distance from the
-    ###            primary focus to the orbit, measured perpendicular to
-    ###            the semi-major axis
-    ### - self.eccChf = eccentricity
-    ### - self.aChf = length of semi-major axis
-    ### - self.bChf = length of semi-minor axis
-    vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
-    pChf = sp.vdot(vHChf,vHChf) / mu
-    vEccChf = sp.vsub(sp.vscl(1./mu,sp.vcrss(self.velChfRsw1,vHChf)),sp.vhat(self.rChfRsw1))
-    self.eccChfSquared = sp.vdot(vEccChf,vEccChf)
-    self.eccChf = math.sqrt(self.eccChfSquared)
-    self.aChf = pChf / (1. - self.eccChfSquared)
-    self.bChf = pChf / math.sqrt(1. - self.eccChfSquared)
-    if self.eccChfSquared>0: self.vEccHatChf = sp.vhat(vEccChf)
-    else              : self.vEccHatChf = sp.vhat(self.rChfRsw1)
-
-    ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
-    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,mu)
-    self.aChfSpice = self.rpChf / (1. - self.eccChfSpice)
-
-    ####################################################################
     ### Equations (5)
-    ### True anomaly posiitons
-    self.lambdaPerigee = sp.recrad(self.vEccHatChf)[1]
-    self.trueAnom1 = (sp.twopi() - self.lambdaPerigee) % sp.twopi()
+    ### Deputy True anomaly
     self.trueAnom2 = (sp.twopi() + self.deltaLambdaDep - self.lambdaPerigee) % sp.twopi()
 
     ####################################################################
     ### Equations (6)
     ### Equivalent chief position at point 2, using PQW2
-    rChf2 = pChf / (1. + (self.eccChf * math.cos(self.trueAnom2)))
+    rChf2 = self.pChf / (1. + (self.eccChf * math.cos(self.trueAnom2)))
     pHat = self.vEccHatChf
     qHat = sp.ucrss([0.,0.,1.],pHat)
     self.rChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.trueAnom2),pHat),sp.vscl(math.sin(self.trueAnom2),qHat)))
-    self.vChfPqw2 = sp.vscl(-math.sqrt(mu/pChf),sp.vadd(sp.vscl(math.sin(self.trueAnom2),pHat),sp.vscl(self.eccChf+math.cos(self.trueAnom2),qHat)))
+    self.vChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
+                           ,sp.vadd(sp.vscl(math.sin(self.trueAnom2),pHat)
+                                   ,sp.vscl(self.eccChf+math.cos(self.trueAnom2),qHat)))
 
     ####################################################################
     ### Equations (7)
@@ -120,11 +173,11 @@ class VA2014:
     ### Equations (9)
     ### Transform Deputy vectors from SEZ to EQCM frame
 
-    ### 9.1) Convert True Anomalies 1 and 2 to Eccentric Anomalies 1 and 2
+    ### 9.1) Convert True Anomalies 2 (Deputy) to Eccentric Anomaly 2
     ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
     ### - Possible exceptions:  divBy0; domain error.
-    self.eccAnom1 = math.atan2(math.sqrt(1. - self.eccChfSquared) * math.sin(self.trueAnom1), self.eccChf + math.cos(self.trueAnom1))
-    self.eccAnom2 = math.atan2(math.sqrt(1. - self.eccChfSquared) * math.sin(self.trueAnom2), self.eccChf + math.cos(self.trueAnom2))
+    ### - Chief done in __init__() method above
+    self.eccAnom2 = math.atan2(self.bOverA * math.sin(self.trueAnom2), self.eccChf + math.cos(self.trueAnom2))
 
     ### 9.2) Get arc length between those Eccentric Anomalies
     arcLength1to2 = self.bChf * orbit_IEISK(self.eccChfSquared, self.eccAnom1, self.eccAnom2)
@@ -246,8 +299,8 @@ if "__main__"==__name__:
   stateChief = numpy.array(map(float,sys.argv[1:7]))
   stateDeputy = numpy.array(map(float,sys.argv[7:13]))
 
-  print(dict(stateChief=stateChief,stateDeputy=stateDeputy))
+  print(dict(stateChf=stateChief,stateDep=stateDeputy))
 
-  va = VA2014(stateChief,stateDeputy,muArg)
+  va = VA2014(stateChief,muArg,stateDep=stateDeputy)
   import pprint
   pprint.pprint(vars(va))
