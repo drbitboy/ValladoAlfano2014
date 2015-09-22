@@ -18,6 +18,8 @@ from scipy.special import ellipeinc as E
 import SpiceyPy as sp
 
 halfpi = sp.halfpi()
+twopi = sp.twopi()
+dpr = sp.dpr()
 
 ### Indices:  ECI (xyz); RSW (rsw); SEZ; R,RA,DEC (from sp.recrad(...))
 
@@ -35,170 +37,11 @@ Deputy() method below; call it now if stateDep is provided
 
 mu = GM, km**3 s**-2
 
-"""
-    ####################################################################
-    ### Extract ECI Positions and ECI velocities from 6-element ECI states
-    ### Save mu in self object
-    self.rChfEci,self.velChfEci = stateChf[:3], stateChf[3:]
-    self.mu = mu
+=====================
+Note about arc length
+=====================
 
-    ####################################################################
-    ### Equations (1) and (2)
-    ### Convert chief position and velocity to [Rhat|Shat|What]1 matrix
-    self.mtxEci2Rsw1 = RVtoRSW(self.rChfEci,self.velChfEci)
-
-    ####################################################################
-    ### Transform chief position and velocity to RSW1 frame
-    (self.rChfRsw1
-    ,self.velChfRsw1
-    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
-          for v in 
-          [self.rChfEci,self.velChfEci]
-        ]
-
-    ####################################################################
-    ### Equations (3) - postponed to deputy calculation
-
-    ####################################################################
-    ### Equations (4)
-    ### Eccentricity and semi-major axis
-    ### - vHChf = momentum vector
-    ### - pChf = semiparameter or semilatus rectum = distance from the
-    ###            primary focus to the orbit, measured perpendicular to
-    ###            the semi-major axis
-    ### - self.eccChf = Eccentricity (also Elliptic Modulus, k)
-    ### - self.aChf = length of semi-major axis
-    ### - self.bChf = length of semi-minor axis
-    vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
-    self.pChf = sp.vdot(vHChf,vHChf) / self.mu
-    vEccChf = sp.vsub(sp.vscl(1./self.mu,sp.vcrss(self.velChfRsw1,vHChf)),sp.vhat(self.rChfRsw1))
-    self.eccChfSquared = sp.vdot(vEccChf,vEccChf)
-    self.eccChf = math.sqrt(self.eccChfSquared)
-    self.bOverA = math.sqrt(1 - self.eccChfSquared)
-    self.aChf = self.pChf / (1. - self.eccChfSquared)
-    self.bChf = self.pChf / self.bOverA
-    if self.eccChfSquared>0.: self.vEccHatChf = sp.vhat(vEccChf)
-    else                    : self.vEccHatChf = sp.vhat(self.rChfRsw1)
-
-    ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
-    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,self.mu)
-    self.aChfSpice = self.rpChf / (1. - self.eccChfSpice)
-
-    ####################################################################
-    ### Equations (5)
-    ### Chief True anomaly posiiton
-    ### Deputy True anomaly postponed to deputy calculation
-    self.lambdaPerigee = sp.recrad(self.vEccHatChf)[1]
-    self.trueAnom1 = (sp.twopi() - self.lambdaPerigee) % sp.twopi()
-
-    ####################################################################
-    ### Equations (6 through 9) - postponed to deputy calculation
-
-    ####################################################################
-    ### Equations (9) - chief only
-
-    ### 9.1) Convert True Anomaly 1 (chief) to Eccentric Anomaly
-    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
-    ### - Possible exceptions:  divBy0; domain error.
-    self.eccAnom1 = math.atan2(self.bOverA * math.sin(self.trueAnom1)
-                              , self.eccChf + math.cos(self.trueAnom1)
-                              )
-
-    ####################################################################
-    ### Complete conversion to EQCM for Deputy if Deputy state is present
-
-    if not (stateDep is None): self.Deputy(stateDep)
-
-
-  ######################################################################
-  def Deputy(self,stateDep):
-    """Make depyty-based calculations.  Chief-only calculations were
-performed in __init__() method above
-
-"""
-    ####################################################################
-    ### Extract Deputy ECI Position and velocity from 6-element deputy
-    ###   ECI state
-    self.rDepEci,self.velDepEci = stateDep[:3], stateDep[3:]
-
-    ####################################################################
-    ### Equations (1) and (2)
-    ### Convert deputy position and velocity to RSW using
-    ###   [Rhat|Shat|What]1 matrix
-    (self.rDepRsw1
-    ,self.velDepRsw1
-    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
-          for v in 
-          [self.rDepEci,self.velDepEci]
-        ]
-
-    ####################################################################
-    ### Equations (3)
-    ### Get delta-lambda to deputy as RA from (Radius,RA,DEC)
-    ###   returned by recrad.
-    RrdDepRsw1 = sp.recrad(self.rDepRsw1)
-    self.deltaLambdaDep = sp.recrad(self.rDepRsw1)[iRA]
-
-    ####################################################################
-    ### Equations (5)
-    ### Deputy True anomaly
-    self.trueAnom2 = (sp.twopi() + self.deltaLambdaDep - self.lambdaPerigee) % sp.twopi()
-
-    ####################################################################
-    ### Equations (6)
-    ### Equivalent chief position at point 2, using PQW2
-    rChf2 = self.pChf / (1. + (self.eccChf * math.cos(self.trueAnom2)))
-    pHat = self.vEccHatChf
-    qHat = sp.ucrss([0.,0.,1.],pHat)
-    self.rChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.trueAnom2),pHat),sp.vscl(math.sin(self.trueAnom2),qHat)))
-    self.vChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
-                           ,sp.vadd(sp.vscl(math.sin(self.trueAnom2),pHat)
-                                   ,sp.vscl(self.eccChf+math.cos(self.trueAnom2),qHat)))
-
-    ####################################################################
-    ### Equations (7)
-    ### Convert from PQW2 to RSW2
-    self.mtxPqw2toRsw2 = RVtoRSW(self.rChfPqw2,self.rChfPqw2)
-    self.rChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.rChfPqw2)
-    self.velChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.vChfPqw2)
-
-    ####################################################################
-    ### Equations (8)
-    ### Transform Deputy vectors to SEZ frame
-    ### - deltaPhiDep is DEC from [Radius,RA,DEC] of rDepRsw1
-    ### - Matrix is ROT2[90-deltaPhiDep] ROT3[deltaLambdaDep]
-    self.deltaPhiDep = RrdDepRsw1[iDEC]
-    self.mtxRswToSez = sp.eul2m(halfpi-self.deltaPhiDep,self.deltaLambdaDep,0.,2,3,1)
-    self.rDepSez = sp.mxv(self.mtxRswToSez,self.rDepRsw1)
-    self.velDepSez = sp.mxv(self.mtxRswToSez,self.velDepRsw1)
-
-    ####################################################################
-    ### Equations (9)
-    ### Transform Deputy vectors from SEZ to EQCM frame
-
-    ### 9.1) Convert True Anomalies 2 (Deputy) to Eccentric Anomaly 2
-    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
-    ### - Possible exceptions:  divBy0; domain error.
-    ### - Chief done in __init__() method above
-    self.eccAnom2 = math.atan2(self.bOverA * math.sin(self.trueAnom2), self.eccChf + math.cos(self.trueAnom2))
-
-    ### 9.2) Get arc length between those Eccentric Anomalies
-    arcLength1to2 = self.orbit_IEISK()
-
-    ### 9.3) Relate the deputy relative to chief at point 2
-    self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iR]
-                            , arcLength1to2
-                            , self.deltaPhiDep * rChf2
-                            )
-    self.velDepEqcm = sp.vpack( self.velDepSez[iZsez] - self.velChfRsw2[iR]
-                              , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
-                              , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
-                              )
-
-
-  ######################################################################
-  def orbit_IEISK(self,ea1Arg=None,ea2Arg=None,aArg=None):
-    """Calculate the arc length from one position on an elliptical orbit
+Calculate the arc length from one position on an elliptical orbit
 to a second position on that same orbit, using E, the Incomplete
 Elliptic Integral of the Second Kind (IEISK).
 
@@ -267,24 +110,269 @@ siimlar to that in (2), at which point E can be used.
 
 3.4) Note the difference between the ea1 and ea2 terms are reverses0
 
+============================
+End of note about arc length
+============================
 """
+    ####################################################################
+    ### Extract ECI Positions and ECI velocities from 6-element ECI states
+    ### Save mu in self object
+    self.rChfEci,self.velChfEci = stateChf[:3], stateChf[3:]
+    self.mu = mu
 
-    ### Process arguments
-    if ea1Arg is None: ea1 = self.eccAnom1
-    else             : ea1 = ea1Arg
-    if ea2Arg is None: ea2 = self.eccAnom2
-    else             : ea2 = ea2Arg
-    if aArg is None: a = self.aChf
-    else           : a = aArg
+    ####################################################################
+    ### Equations (1) and (2)
+    ### Convert chief position and velocity to [Rhat|Shat|What]1 matrix
+    self.mtxEci2Rsw1 = RVtoRSW(self.rChfEci,self.velChfEci)
 
-    ecc2 = self.eccChfSquared
+    ####################################################################
+    ### Transform chief position and velocity to RSW1 frame
+    (self.rChfRsw1
+    ,self.velChfRsw1
+    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
+          for v in 
+          [self.rChfEci,self.velChfEci]
+        ]
 
-    ### With all that, this function is reduced to a one-liner:
-    ### - scipy.special.ellipeinc provides E
-    ###   - Handles wraparound of eccentric anomaly
-    ###   - Routine uses the parameter, m = eccentricity^2
+    ####################################################################
+    ### Equations (3) - postponed to deputy calculation
 
-    return a * (E(halfpi-ea1,ecc2) - E(halfpi-ea2,ecc2))
+    ####################################################################
+    ### Equations (4)
+    ### Eccentricity and semi-major axis
+    ### - vHChf = momentum vector
+    ### - self.pChf = semiparameter or semilatus rectum = distance from
+    ###               the primary focus to the orbit, measured
+    ###               perpendicular to the semi-major axis
+    ### - self.eccChfSquared = Square of Eccentricity
+    ###   - derivation, dot product of vEccChf with itself, will always
+    ###       be non-negative
+    ###   - square root of (1-self.eccChfSquared) will throw math domain
+    ###       exception if eccentricity exceeds unity.
+    ###   - reciprocal of (1-self.eccChfSquared) will throw division by
+    ###       zero exception if eccentricity is unity
+    ### - self.eccChf = Eccentricity (also Elliptic Modulus, k)
+    ### - self.bOverA = ratio of semi-minor to semi-major axes' lengths
+    ### - self.aChf = length of semi-major axis
+    ### - self.bChf = length of semi-minor axis
+    vHChf = sp.vcrss(self.rChfRsw1,self.velChfRsw1)
+    self.pChf = sp.vdot(vHChf,vHChf) / self.mu
+    vEccChf = sp.vsub(sp.vscl(1./self.mu,sp.vcrss(self.velChfRsw1,vHChf)),sp.vhat(self.rChfRsw1))
+    self.eccChfSquared = sp.vdot(vEccChf,vEccChf)
+    self.eccChf = math.sqrt(self.eccChfSquared)
+    self.bOverA = math.sqrt(1 - self.eccChfSquared)
+    self.aChf = self.pChf / (1. - self.eccChfSquared)
+    self.bChf = self.pChf / self.bOverA
+    self.cChf = self.aChf * self.eccChf
+    if self.eccChfSquared>0.: self.vEccHatChf = sp.vhat(vEccChf)
+    else                    : self.vEccHatChf = sp.vhat(self.rChfRsw1)
+
+    ### Use SPICE toolkit routine to calculate perfocal distance (rp), eccentricity, and semi-major axis
+    self.rpChf,self.eccChfSpice,inc,lnode,argp,m0,t0,muTmp = sp.oscelt(stateChf,0.,self.mu)
+    self.aChfSpice = self.rpChf / (1. - self.eccChfSpice)
+
+    ### Quadrant arc length; used later
+    self.quadArc = self.aChf * E(halfpi,self.eccChfSquared)
+
+    ### Arc length from (positive) semi-major axis (length = self.aChf)
+    ### to Eccentric Anomaly ea; see docstring in orbit_IEISK below
+    self.E = lambda ea: self.quadArc - (self.aChf * E(halfpi-ea,self.eccChfSquared))
+    self.XYtoTrueAnom = lambda x,y: sp.recrad(sp.vpack(x-self.cChf,y,0.))[iRA]
+
+    ####################################################################
+    ### Equations (5)
+    ### Chief True anomaly posiiton
+    ### Deputy True anomaly postponed to deputy calculation
+    self.lambdaPerigee = sp.recrad(self.vEccHatChf)[iRA]
+    self.trueAnom1 = (twopi - self.lambdaPerigee) % twopi
+
+    ####################################################################
+    ### Equations (6 through 9) - postponed to deputy calculation
+
+    ####################################################################
+    ### Equations (9) - chief only
+
+    ### 9.1) Convert True Anomaly 1 (chief) to Eccentric Anomaly
+    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
+    ### - Possible exceptions:  divBy0; domain error.
+    self.TrueToEccAnom = lambda ta: sp.recrad(sp.vpack(self.eccChf + math.cos(ta)
+                                                      ,self.bOverA * math.sin(ta)
+                                                      ,0.
+                                                      )
+                                             )[iRA]
+    self.eccAnom1 = self.TrueToEccAnom(self.trueAnom1)
+
+    ### Get the arc length to the chief
+    self.arcChf = self.E(self.eccAnom1)
+
+    ####################################################################
+    ### Complete conversion to EQCM for Deputy if Deputy state is present
+
+    if not (stateDep is None): self.Deputy(stateDep)
+
+
+  ######################################################################
+  def Deputy(self,stateDep):
+    """Make depyty-based calculations.  Chief-only calculations were
+performed in __init__() method above
+
+"""
+    ####################################################################
+    ### Extract Deputy ECI Position and velocity from 6-element deputy
+    ###   ECI state
+    self.rDepEci,self.velDepEci = stateDep[:3], stateDep[3:]
+
+    ####################################################################
+    ### Equations (1) and (2)
+    ### Convert deputy position and velocity to RSW using
+    ###   [Rhat|Shat|What]1 matrix
+    (self.rDepRsw1
+    ,self.velDepRsw1
+    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
+          for v in 
+          [self.rDepEci,self.velDepEci]
+        ]
+
+    ####################################################################
+    ### Equations (3)
+    ### Get delta-lambda to deputy as RA from (Radius,RA,DEC)
+    ###   returned by recrad.
+    RrdDepRsw1 = sp.recrad(self.rDepRsw1)
+    self.deltaLambdaDep = sp.recrad(self.rDepRsw1)[iRA]
+
+    ####################################################################
+    ### Equations (5)
+    ### Deputy True anomaly
+    self.trueAnom2 = (twopi + self.deltaLambdaDep - self.lambdaPerigee) % twopi
+
+    ####################################################################
+    ### Equations (6)
+    ### Equivalent chief position at point 2, using PQW2
+    rChf2 = self.pChf / (1. + (self.eccChf * math.cos(self.trueAnom2)))
+    pHat = self.vEccHatChf
+    qHat = sp.ucrss([0.,0.,1.],pHat)
+    self.rChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.trueAnom2),pHat),sp.vscl(math.sin(self.trueAnom2),qHat)))
+    self.velChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
+                             ,sp.vadd(sp.vscl(math.sin(self.trueAnom2),pHat)
+                                     ,sp.vscl(self.eccChf+math.cos(self.trueAnom2),qHat)
+                                     )
+                             )
+
+    ####################################################################
+    ### Equations (7)
+    ### Convert from PQW2 to RSW2
+    self.mtxPqw2toRsw2 = RVtoRSW(self.rChfPqw2,self.rChfPqw2)
+    self.rChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.rChfPqw2)
+    self.velChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.velChfPqw2)
+
+    ####################################################################
+    ### Equations (8)
+    ### Transform Deputy vectors to SEZ frame
+    ### - deltaPhiDep is DEC from [Radius,RA,DEC] of rDepRsw1
+    ### - Matrix is ROT2[90-deltaPhiDep] ROT3[deltaLambdaDep]
+    self.deltaPhiDep = RrdDepRsw1[iDEC]
+    self.mtxRswToSez = sp.eul2m(halfpi-self.deltaPhiDep,self.deltaLambdaDep,0.,2,3,1)
+    self.rDepSez = sp.mxv(self.mtxRswToSez,self.rDepRsw1)
+    self.velDepSez = sp.mxv(self.mtxRswToSez,self.velDepRsw1)
+
+    ####################################################################
+    ### Equations (9)
+    ### Transform Deputy vectors from SEZ to EQCM frame
+
+    ### 9.1) Convert True Anomalies 2 (Deputy) to Eccentric Anomaly 2
+    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
+    ### - Possible exceptions:  divBy0; domain error.
+    ### - Chief done in __init__() method above
+    self.eccAnom2 = self.TrueToEccAnom(self.trueAnom2)
+
+    ### Ensure .eccAnom2 is within PI/2 of .eccAnom1
+    while self.eccAnom2 >  (self.eccAnom1+math.pi): self.eccAnom2 -= (2 * math.pi)
+    while self.eccAnom2 <= (self.eccAnom1-math.pi): self.eccAnom2 += (2 * math.pi)
+
+    ### 9.2) Get arc length from positive semi-major axis to deputy
+    self.arcDep = self.E(self.eccAnom2)
+
+    ### 9.3) Relate the deputy relative to chief at point 2
+    self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iR]
+                            , self.arcDep - self.arcChf
+                            , self.deltaPhiDep * rChf2
+                            )
+    self.velDepEqcm = sp.vpack( self.velDepSez[iZsez] - self.velChfRsw2[iR]
+                              , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
+                              , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
+                              )
+
+
+  ######################################################################
+  def invE(self,offsetArcLength=None,arcLengthArg=None):
+    """Find eccentric anomaly corresponding to the input arc length"""
+
+    ### Parse arguments
+    assert not (offsetArcLength is not None and arcLengthArg is not None)
+    if arcLengthArg is None: arcLengthTarget = self.arcChf + offsetArcLength
+    else                   : arcLengthTarget = float(arcLengthArg)
+
+    ### Initial estimate of Eccentric Anomaly
+    ### - highest positive or negative multiple of halfpi that gives
+    ###   an arc length less than or equal to targetLength
+    nQuad = int(arcLengthTarget / self.quadArc)
+    arcLengthGuess = nQuad * self.quadArc
+    if arcLengthGuess > arcLengthTarget:
+      nQuad -= 1
+      arcLengthGuess -= self.quadArc
+    eaGuess0 = eaGuess = nQuad * halfpi
+    eaGuess0PlusTwoPi = eaGuess0 + twopi
+
+    deltaArc =  arcLengthTarget - arcLengthGuess
+    tol = self.aChf * 1e-9
+    import pprint
+    while abs(deltaArc) > tol:
+      pprint.pprint(dict(deltaArc=deltaArc
+                        ,eaGuess0Rad=eaGuess0
+                        ,eaGuess0Deg=eaGuess0 * dpr
+                        ,eaGuessRad=eaGuess
+                        ,eaGuessDeg=eaGuess * dpr
+                        ,arcLengthTarget=arcLengthTarget
+                        ,arcLengthGuess=arcLengthGuess
+                        ,nQuad=nQuad
+                        ))
+      ### Vector from primary focus to Ecc. Anom. guess
+      cosea = math.cos(eaGuess)
+      sinea = math.sin(eaGuess)
+      x = self.aChf * cosea
+      y = self.bChf * sinea
+
+      ### Delta-[x,y] of tangent at (x,y) for distance of deltaArc
+      delx = -self.aChf * sinea
+      dely =  self.bChf * cosea
+      fac = deltaArc / sp.vnorm(sp.vpack(delx,dely,0.))
+      delx *= fac
+      dely *= fac
+   
+      ### Delta-vector tangent at (x,y) for distance of deltaArc
+      ### - [X,Y,Z] = [x+delx, y+dely, 0]
+      ### - scale X by 1/a and Y by 1/b to get Eccentric Anomaly
+      eaGuess = sp.recrad(sp.vpack((x+delx)/self.aChf
+                                   ,(y+dely)/self.bChf
+                                   ,0.
+                                   )
+                          )[iRA]
+      while eaGuess0 > eaGuess: eaGuess += twopi
+      while (eaGuess0PlusTwoPi) <= eaGuess: eaGuess -= twopi
+      arcLengthGuess = self.E(eaGuess)
+      deltaArc = arcLengthTarget - arcLengthGuess
+
+    pprint.pprint(dict(deltaArc=deltaArc
+                      ,eaGuess0Rad=eaGuess0
+                      ,eaGuess0Deg=eaGuess0 * dpr
+                      ,eaGuessRad=eaGuess
+                      ,eaGuessDeg=eaGuess * dpr
+                      ,arcLengthTarget=arcLengthTarget
+                      ,arcLengthGuess=arcLengthGuess
+                      ,nQuad=nQuad
+                      ))
+
+    return eaGuess
 
 
 ########################################################################
@@ -324,3 +412,13 @@ if "__main__"==__name__:
   va = VA2014(stateChief,muArg,stateDep=stateDeputy)
   import pprint
   pprint.pprint(vars(va))
+
+  testEa = -13 * halfpi / 3.
+  testArc = va.E(testEa)
+  testEaOut = va.invE(testArc)
+  testEaErr = testEaOut - testEa
+  pprint.pprint(dict(testEa=testEa,testArc=testArc,testEaOut=testEaOut
+                    ,err=err,fracErr=err/testEa
+                    )
+               )
+########################################################################
