@@ -26,6 +26,9 @@ iX, iY, iZ = iR, iSrsw, iW = iSsez, iE, iZsez = iRadius, iRA, iDEC = xrange(3)
 
 ########################################################################
 class VA2014:
+
+
+  ######################################################################
   def __init__(self,stateChf,mu,stateDep=None):
     """Make chief-only calculations.  Save deputy-based calculations for
 Deputy() method below; call it now if stateDep is provided
@@ -107,7 +110,7 @@ mu = GM, km**3 s**-2
     if not (stateDep is None): self.Deputy(stateDep)
 
 
-########################################################################
+  ######################################################################
   def Deputy(self,stateDep):
     """Make depyty-based calculations.  Chief-only calculations were
 performed in __init__() method above
@@ -180,7 +183,7 @@ performed in __init__() method above
     self.eccAnom2 = math.atan2(self.bOverA * math.sin(self.trueAnom2), self.eccChf + math.cos(self.trueAnom2))
 
     ### 9.2) Get arc length between those Eccentric Anomalies
-    arcLength1to2 = self.bChf * orbit_IEISK(self.eccChfSquared, self.eccAnom1, self.eccAnom2)
+    arcLength1to2 = self.orbit_IEISK()
 
     ### 9.3) Relate the deputy relative to chief at point 2
     self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iR]
@@ -191,6 +194,97 @@ performed in __init__() method above
                               , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
                               , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
                               )
+
+
+  ######################################################################
+  def orbit_IEISK(self,ea1Arg=None,ea2Arg=None,aArg=None):
+    """Calculate the arc length from one position on an elliptical orbit
+to a second position on that same orbit, using E, the Incomplete
+Elliptic Integral of the Second Kind (IEISK).
+
+The ellipse semi-major axis length is a, the semi-minor axis length is
+b, and b <= a.
+
+Arguments:
+
+  eccSquared:  the ellipse eccentricity squared = (1 - (b/a)^2)
+               N.B. b <= a; 0 <= eccSquared <= 1
+               N.B. eccSquared equals ecc2 in the notes below
+               N.B. eccSquared is also known as the paramete", m = k^2
+               N.B. sqrt(eccSquared) is also known as the elliptic
+                    modulus or eccentricity, e = k = sin(alpha), where
+                    alpha is the modular angle
+
+  ea1 = the first position on the orbit, expressed as an eccentric
+        anomaly (angle, radians) positive from zero at the semi-major
+        axis toward the direction of the orbiting body
+
+  ea2 = the second position on the orbit, expressed as an eccentric
+        anomaly (angle, radians) positive from zero at the semi-major
+        axis toward the direction of the orbiting body
+
+Implementation:
+
+1) The arc length from a, the semi-major axis, is the definite integral
+of
+
+  a * sqrt(1 - ecc2 cos(ea)^2)
+
+evaluated from eccentric anomaly ea1 to ea2.
+
+2) However, the integral available, E, the Incomplete Elliptic Integral
+of the Second Kind, is the integral of
+
+  a * sqrt(1 - ecc2 sin(ea)^2)
+
+from eccentric anomaly zero to ea, which evalutates angles relative to a
+semi-MINOR axis a, with semi-MAJOR axis b, so a < b, and
+ecc2 = (1 - (a/b)^2).
+
+2.1) So E is off by PI/2 relative to the desired integral in (1) above.
+
+3) The solution is to use E to calculate the arc length from eccentric
+anomaly (PI/2 - ea) to eccentric anomaly (PI/2 - 0).  This is a variable
+substitution that effectively replaces cos(ea) in (1) with its
+equivalent sin(PI/2 - ea), and converts the integral in (1) to a form
+siimlar to that in (2), at which point E can be used.
+
+3.1) So
+
+  arcLength0 = a * integral(1-ecc2 cos(ea)^2,ea=0..ea1)
+             = a * integral(1-ecc2 sin(PI/2-ea)^2,ea=PI/2-ea1..PI/2)
+             = a * (E(PI/2,ecc2) - E(PI/2-ea1,ecc2))
+
+3.2) and similarly
+
+  arcLength1 = a (E(PI/2,ecc2) - E(PI/2-ea2,ecc2))
+
+3.3) and finally the desired arc length from ea1 to ea2 in (1) above
+
+  = arcLength1 - arcLength0
+  = a * ((E(PI/2,ecc2)-E(PI/2-ea2,ecc2)) - (E(PI/2,ecc2)-E(PI/2-ea1,ecc2)))
+  = a * (E(PI/2-ea1,ecc2) - E(PI/2-ea2,ecc2))
+
+3.4) Note the difference between the ea1 and ea2 terms are reverses0
+
+"""
+
+    ### Process arguments
+    if ea1Arg is None: ea1 = self.eccAnom1
+    else             : ea1 = ea1Arg
+    if ea2Arg is None: ea2 = self.eccAnom2
+    else             : ea2 = ea2Arg
+    if aArg is None: a = self.aChf
+    else           : a = aArg
+
+    ecc2 = self.eccChfSquared
+
+    ### With all that, this function is reduced to a one-liner:
+    ### - scipy.special.ellipeinc provides E
+    ###   - Handles wraparound of eccentric anomaly
+    ###   - Routine uses the parameter, m = eccentricity^2
+
+    return a * (E(halfpi-ea1,ecc2) - E(halfpi-ea2,ecc2))
 
 
 ########################################################################
@@ -209,80 +303,6 @@ def RVtoRSW(R,V):
     ### Equations (2)
     ### Combine RSW1 unit vector into [Rhat|Shat|What] matrix
     return [rHatEci,sHatEci,wHatEci]
-
-
-########################################################################
-def orbit_IEISK(eccSquared,ea0,ea1):
-  """Calculate the arc length from one position on an elliptical orbit
-to a second position on that same orbit, using E, the Incomplete
-Elliptic Integral of the Second Kind (IEISK).
-
-The ellipse semi-major axis is 1 (= a); the semi-minor axis length is b,
-and b <= a.
-
-Arguments:
-
-  eccSquared:  the ellipse eccentricity squared = (1 - (b/a)^2)
-               N.B. b <= a; 0 <= eccSquared <= 1
-               N.B. eccSquared equals ecc2 in the notes below
-               N.B. eccSquared is also known as the paramete", m = k^2
-               N.B. sqrt(eccSquared) is also known as the elliptic
-                    modulus or eccentricity, e = k = sin(alpha), where
-                    alpha is the modular angle
-
-  ea0 = the first position on the orbit, expressed as an eccentric
-        anomaly (angle, radians) positive from zero at the semi-major
-        axis toward the direction of the orbiting body
-
-  ea1 = the second position on the orbit, expressed as an eccentric
-        anomaly (angle, radians) positive from zero at the semi-major
-        axis toward the direction of the orbiting body
-
-Implementation:
-
-1) The arc length from the semi-major axis is definite integral of
-sqrt(1 - ecc2 cos(ea)^2) evaluated from eccentric anomaly ea0 to ea1.
-
-2) However, the integral available, E, the Incomplete Elliptic Integral
-of the Second Kind, is the integral of sqrt(1 - ecc2 sin(ea)^2), from
-eccentric anomaly zero to ea, which evalutates angles relative to a
-semi-minor axis a of length < 1, with semi-major axis b of length 1,
-and with ecc2 = (1 - (a/b)^2).
-
-2.1) So E is off by PI/2 relative to the desired integral in (1) above.
-
-3) The solution is to use E to calculate the arc length from eccentric
-anomaly (PI/2 - ea) to eccentric anomaly (PI/2 - 0).  This is a variable
-substitution that effectively replaces cos(ea) in (1) with its
-equivalent sin(PI/2 - ea), and converts the integral in (1) to the form
-in (2), at which point E can be used.
-
-3.1) So
-
-  arcLength0 = integral(1-ecc2 cos(ea)^2) from ea=0 to ea0
-             = integral(1-ecc2 sin(PI/2-ea)^2) from ea=PI/2-ea0 to PI/2
-             = E(ecc2,PI/2) - E(ecc2,PI/2-ea0)
-
-3.2) and similarly
-
-  arcLength1 = E(ecc2,PI/2) - E(ecc2,PI/2-ea1)
-
-3.3) and finally the desired arc length from ea0 to ea1 in (1) above
-
-  = arcLength1 - arcLength0
-  = (E(ecc2,PI/2)-E(ecc2,PI/2-ea1)) - (E(ecc2,PI/2)-E(ecc2,PI/2-ea0)) 
-  = E(ecc2,PI/2-ea0) - E(ecc2,PI/2-ea1)
-
-3.4) Note the ea0 and ea1 terms reverse because d(PI/2-ea)/d(ea) = -1
-
-  """
-
-  ### With all that, this function is reduced to a one-liner
-  ### scipy.special.ellipeinc provides E
-  ### - Handles wraparound of eccentric anomaly
-  ### - Routine uses the parameter, m = eccentricity^2
-
-  return E(eccSquared,halfpi-ea0) - E(eccSquared,halfpi-ea1)
 
 
 ########################################################################
