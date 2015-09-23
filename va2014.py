@@ -304,7 +304,7 @@ performed in __init__() method above
 
 
   ######################################################################
-  def invE(self,offsetArcLength=None,arcLengthArg=None):
+  def invE(self,offsetArcLength=None,arcLengthArg=None,rtnIter=False):
     """Find eccentric anomaly corresponding to the input arc length"""
 
     ### Parse arguments
@@ -325,17 +325,10 @@ performed in __init__() method above
 
     deltaArc =  arcLengthTarget - arcLengthGuess
     tol = self.aChf * 1e-9
-    import pprint
+    itter = 0
     while abs(deltaArc) > tol:
-      pprint.pprint(dict(deltaArc=deltaArc
-                        ,eaGuess0Rad=eaGuess0
-                        ,eaGuess0Deg=eaGuess0 * dpr
-                        ,eaGuessRad=eaGuess
-                        ,eaGuessDeg=eaGuess * dpr
-                        ,arcLengthTarget=arcLengthTarget
-                        ,arcLengthGuess=arcLengthGuess
-                        ,nQuad=nQuad
-                        ))
+
+      itter += 1
       ### Vector from primary focus to Ecc. Anom. guess
       cosea = math.cos(eaGuess)
       sinea = math.sin(eaGuess)
@@ -362,17 +355,7 @@ performed in __init__() method above
       arcLengthGuess = self.E(eaGuess)
       deltaArc = arcLengthTarget - arcLengthGuess
 
-    pprint.pprint(dict(deltaArc=deltaArc
-                      ,eaGuess0Rad=eaGuess0
-                      ,eaGuess0Deg=eaGuess0 * dpr
-                      ,eaGuessRad=eaGuess
-                      ,eaGuessDeg=eaGuess * dpr
-                      ,arcLengthTarget=arcLengthTarget
-                      ,arcLengthGuess=arcLengthGuess
-                      ,nQuad=nQuad
-                      ))
-
-    return eaGuess
+    return rtnIter and (eaGuess,itter,) or eaGuess
 
 
 ########################################################################
@@ -415,10 +398,16 @@ if "__main__"==__name__:
 
   testEa = -13 * halfpi / 3.
   testArc = va.E(testEa)
-  testEaOut = va.invE(testArc)
+  testEaOut,itter = va.invE(testArc,rtnIter=True)
   testEaErr = testEaOut - testEa
-  pprint.pprint(dict(testEa=testEa,testArc=testArc,testEaOut=testEaOut
-                    ,err=err,fracErr=err/testEa
+  testArcOut = va.E(testEaOut)
+  testArcErr = testArcOut - testArc
+  pprint.pprint(dict(testEa=testEa,testDegEa=testEa*dpr
+                    ,testEaOut=testEaOut,testDegEaOut=testEaOut*dpr
+                    ,testArc=testArc,testArcOut=testArcOut
+                    ,eaErr=testEaErr,eaFracErr=testEaErr/testEa
+                    ,arcErr=testArcErr,arcFracErr=testArcErr/testArc
+                    ,iter=itter
                     )
                )
 ########################################################################
