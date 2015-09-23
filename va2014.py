@@ -24,7 +24,7 @@ dpr = sp.dpr()
 ### Indices:  ECI (xyz); RSW (rsw); SEZ; R,RA,DEC (from sp.recrad(...))
 
 iX, iY, iZ = \
-iR, iSrsw, iW = \
+iRrsw, iSrsw, iW = \
 iSsez, iE, iZsez = \
 iRadius, iRA, iDEC = \
 iReq, iAeq, iZeq = \
@@ -128,13 +128,13 @@ End of note about arc length
     ####################################################################
     ### Equations (1) and (2)
     ### Convert chief position and velocity to [Rhat|Shat|What]1 matrix
-    self.mtxEci2Rsw1 = RVtoRSW(self.rChfEci,self.velChfEci)
+    self.mtxEciToRsw1 = RVtoRSW(self.rChfEci,self.velChfEci)
 
     ####################################################################
     ### Transform chief position and velocity to RSW1 frame
     (self.rChfRsw1
     ,self.velChfRsw1
-    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
+    ) = [ sp.mxv(self.mtxEciToRsw1,v)
           for v in 
           [self.rChfEci,self.velChfEci]
         ]
@@ -233,7 +233,7 @@ performed in __init__() method above
     ###   [Rhat|Shat|What]1 matrix
     (self.rDepRsw1
     ,self.velDepRsw1
-    ) = [ sp.mxv(self.mtxEci2Rsw1,v)
+    ) = [ sp.mxv(self.mtxEciToRsw1,v)
           for v in 
           [self.rDepEci,self.velDepEci]
         ]
@@ -298,11 +298,11 @@ performed in __init__() method above
     self.arcDep = self.E(self.eccAnom2)
 
     ### 9.3) Relate the deputy relative to chief at point 2
-    self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iR]
+    self.rDepEqcm = sp.vpack( self.rDepSez[iZsez] - self.rChfRsw2[iRrsw]
                             , self.arcDep - self.arcChf
                             , self.deltaPhiDep * rChf2
                             )
-    self.velDepEqcm = sp.vpack( self.velDepSez[iZsez] - self.velChfRsw2[iR]
+    self.velDepEqcm = sp.vpack( self.velDepSez[iZsez] - self.velChfRsw2[iRrsw]
                               , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
                               , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
                               )
@@ -330,7 +330,7 @@ performed in __init__() method above
     ####################################################################
     ### Equations (11 and 12) are already done in Equations 1 through 5
     ### in the constructor __init__() above
-    ### - .mtxEci2Rsw1
+    ### - .mtxEciToRsw1
     ### - .{r,vel}ChfRsw1
     ### - .lambdaPerigee
     ### - .trueAnom1
@@ -338,7 +338,7 @@ performed in __init__() method above
     ####################################################################
     ### Equations (13)
     ### in the constructor __init__() above
-    ### - .mtxEci2Rsw1
+    ### - .mtxEciToRsw1
 
     self.zinvArcDep = self.arcChf + rDepEqcm[iAeq]
     self.zinvEccAnom2 = self.invE(arcLengthArg=self.zinvArcDep)
@@ -372,8 +372,44 @@ performed in __init__() method above
     self.zinvRChfRsw2 = sp.mxv(self.zinvMtxPqw2toRsw2,self.zinvRChfPqw2)
     self.zinvVelChfRsw2 = sp.mxv(self.zinvMtxPqw2toRsw2,self.zinvVelChfPqw2)
 
-    return None,None
+    ####################################################################
+    ### Equations (15)
+    self.zinvDeltaPhiDep = rDepEqcm[iZeq] / rChf2
 
+    rDepHatRsw1 = sp.radrec(1., self.zinvDeltaLambdaDep, self.zinvDeltaPhiDep)
+
+    ####################################################################
+    ### - Equations (8) repeat from Deputy method, as deputy may differ
+    ###   - Transformation matrix from RSW to SEZ frame
+    ###   - Matrix is ROT2[90-deltaPhiDep] ROT3[deltaLambdaDep]
+    self.zinvMtxRswToSez = sp.eul2m(halfpi-self.zinvDeltaPhiDep,self.zinvDeltaLambdaDep,0.,2,3,1)
+
+    ####################################################################
+    ### Equations (16)
+    ### - Transform deputy unit vector from RSW1 to SEZ
+    ### - Scale deputy unit vectors in RSW1 and in SEZ
+    ###   - factor is X (R) component of deputy EQCM X (R), plus R
+    ###       component of chief RSW2
+    ### - Transform deputy vector from RSW1 to ECI (transpose matrix)
+    rDepHatSez = sp.mxv(self.zinvMtxRswToSez,rDepHatRsw1)
+    sezScale = (rDepEqcm[iReq] + self.zinvRChfRsw2[iRrsw]) / rDepHatSez[iZsez]
+    self.zinvRDepSez = sp.vscl(sezScale, rDepHatSez)
+    self.zinvRDepRsw1 = sp.vscl(sezScale, rDepHatRsw1)
+    self.zinvRDepEci = sp.mtxv(self.mtxEciToRsw1, self.zinvRDepRsw1)
+
+    ####################################################################
+    ### Equations (17)
+    ### - final velocity displacements
+    ### - Not working yet:  what is rChf?
+    rChf = sp.vnorm(self.rChfEci)
+    self.zinvVelDepSez = sp.vpack((velDepEqcm[iZeq] / rChf) * sezScale
+                                 ,(velDepEqcm[iAeq] + (self.velChfRsw1[iSrsw] / rChf)) * sezScale * math.cos(self.zinvDeltaPhiDep)
+                                 ,velDepEqcm[iReq] + self.zinvVelChfRsw2[iRrsw]
+                                 )
+    self.zinvVelDepRsw1 = sp.mtxv(self.zinvMtxRswToSez, self.zinvVelDepSez)
+    self.zinvVelDepEci = sp.mtxv(self.mtxEciToRsw1, self.zinvVelDepRsw1)
+
+    return self.zinvRDepEci,self.zinvVelDepEci
 
 
   ######################################################################
@@ -446,7 +482,7 @@ def RVtoRSW(R,V):
     ####################################################################
     ### Equations (2)
     ### Combine RSW1 unit vector into [Rhat|Shat|What] matrix
-    return [rHatEci,sHatEci,wHatEci]
+    return numpy.vstack((rHatEci,sHatEci,wHatEci,))
 
 
 ########################################################################
@@ -469,7 +505,18 @@ if "__main__"==__name__:
   zinvStateDeputy = va.inverseDeputy()
 
   import pprint
-  pprint.pprint(vars(va))
+  d = dict()
+  d.update(vars(va))
+  for k in d:
+    if k[:4]!='zinv': continue
+    knoz = k[4].lower() + k[5:]
+    if not (knoz in d): continue
+    try:
+      d[k] = (d[k],d[k]-d[knoz],)
+    except:
+      print(dict(k=k,knoz=knoz,dk=d[k],dknoz=d[knoz]))
+
+  pprint.pprint(d)
 
   testEa = -13 * halfpi / 3.
   testArc = va.E(testEa)
