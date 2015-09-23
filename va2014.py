@@ -23,7 +23,12 @@ dpr = sp.dpr()
 
 ### Indices:  ECI (xyz); RSW (rsw); SEZ; R,RA,DEC (from sp.recrad(...))
 
-iX, iY, iZ = iR, iSrsw, iW = iSsez, iE, iZsez = iRadius, iRA, iDEC = xrange(3)
+iX, iY, iZ = \
+iR, iSrsw, iW = \
+iSsez, iE, iZsez = \
+iRadius, iRA, iDEC = \
+iReq, iAeq, iZeq = \
+xrange(3)
 
 
 ########################################################################
@@ -261,7 +266,7 @@ performed in __init__() method above
     ####################################################################
     ### Equations (7)
     ### Convert from PQW2 to RSW2
-    self.mtxPqw2toRsw2 = RVtoRSW(self.rChfPqw2,self.rChfPqw2)
+    self.mtxPqw2toRsw2 = RVtoRSW(self.rChfPqw2,self.velChfPqw2)
     self.rChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.rChfPqw2)
     self.velChfRsw2 = sp.mxv(self.mtxPqw2toRsw2,self.velChfPqw2)
 
@@ -301,6 +306,74 @@ performed in __init__() method above
                               , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
                               , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
                               )
+
+    return self.rDepEqcm, self.velDepEqcm
+
+
+  ######################################################################
+  def inverseDeputy(self,stateDepEqcm=False):
+    """Invert depyty-based calculations.  Chief-only calculations were
+performed in __init__() method above
+"""
+
+    ####################################################################
+    ### Process argmument ...
+    if stateDepEqcm:
+      ### Use deputy state argument (6-vector), if supplied
+      rDepEqcm = stateDepEqcm[:3]
+      velDepEqcm = stateDepEqcm[3:]
+    else:
+      ### Use result of .Deputy() method if no state is supplied
+      rDepEqcm = self.rDepEqcm
+      velDepEqcm = self.velDepEqcm
+
+    ####################################################################
+    ### Equations (11 and 12) are already done in Equations 1 through 5
+    ### in the constructor __init__() above
+    ### - .mtxEci2Rsw1
+    ### - .{r,vel}ChfRsw1
+    ### - .lambdaPerigee
+    ### - .trueAnom1
+
+    ####################################################################
+    ### Equations (13)
+    ### in the constructor __init__() above
+    ### - .mtxEci2Rsw1
+
+    self.zinvArcDep = self.arcChf + rDepEqcm[iAeq]
+    self.zinvEccAnom2 = self.invE(arcLengthArg=self.zinvArcDep)
+
+    self.zinvTrueAnom2 = self.XYtoTrueAnom(self.aChf * math.cos(self.zinvEccAnom2)
+                                          ,self.bChf * math.sin(self.zinvEccAnom2)
+                                          )
+
+    ####################################################################
+    ### Equation (14)
+
+    self.zinvDeltaLambdaDep = self.zinvTrueAnom2 - self.trueAnom1
+
+    ####################################################################
+    ### Equations (6) repeat from Deputy method, as 2 may be different
+    ### Equivalent chief position at point 2, using PQW2
+    rChf2 = self.pChf / (1. + (self.eccChf * math.cos(self.zinvTrueAnom2)))
+    pHat = self.vEccHatChf
+    qHat = sp.ucrss([0.,0.,1.],pHat)
+    self.zinvRChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.zinvTrueAnom2),pHat),sp.vscl(math.sin(self.zinvTrueAnom2),qHat)))
+    self.zinvVelChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
+                                 ,sp.vadd(sp.vscl(math.sin(self.zinvTrueAnom2),pHat)
+                                         ,sp.vscl(self.eccChf+math.cos(self.zinvTrueAnom2),qHat)
+                                         )
+                                 )
+
+    ####################################################################
+    ### Equations (7) repeat from Deputy method, as 2 may be different
+    ### Convert from PQW2 to RSW2
+    self.zinvMtxPqw2toRsw2 = RVtoRSW(self.zinvRChfPqw2,self.zinvVelChfPqw2)
+    self.zinvRChfRsw2 = sp.mxv(self.zinvMtxPqw2toRsw2,self.zinvRChfPqw2)
+    self.zinvVelChfRsw2 = sp.mxv(self.zinvMtxPqw2toRsw2,self.zinvVelChfPqw2)
+
+    return None,None
+
 
 
   ######################################################################
@@ -393,6 +466,8 @@ if "__main__"==__name__:
   print(dict(stateChf=stateChief,stateDep=stateDeputy))
 
   va = VA2014(stateChief,muArg,stateDep=stateDeputy)
+  zinvStateDeputy = va.inverseDeputy()
+
   import pprint
   pprint.pprint(vars(va))
 
