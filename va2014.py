@@ -263,17 +263,20 @@ performed in __init__() method above
     ####################################################################
     ### Equation (14)
 
-    self.zinvDeltaLambdaDep = self.zinvTrueAnom2 - self.trueAnom1
+    self.zinvDeltaLambdaDep = (twopi + self.zinvTrueAnom2 - self.trueAnom1) % twopi
 
     ####################################################################
     ### Equations (6) repeat from Deputy method, as 2 may be different
     ### Equivalent chief position at point 2, using PQW2
+
+
     rChf2 = self.pChf / (1. + (self.eccChf * math.cos(self.zinvTrueAnom2)))
     pHat = self.vEccHatChf
     qHat = sp.ucrss([0.,0.,1.],pHat)
     self.zinvRChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.zinvTrueAnom2),pHat),sp.vscl(math.sin(self.zinvTrueAnom2),qHat)))
-    self.zinvVelChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
-                                 ,sp.vadd(sp.vscl(math.sin(self.zinvTrueAnom2),pHat)
+
+    self.zinvVelChfPqw2 = sp.vscl(math.sqrt(self.mu/self.pChf)
+                                 ,sp.vadd(sp.vscl(           -math.sin(self.zinvTrueAnom2),pHat)
                                          ,sp.vscl(self.eccChf+math.cos(self.zinvTrueAnom2),qHat)
                                          )
                                  )
@@ -507,14 +510,13 @@ if "__main__"==__name__:
 
   muArg = float(([398600.4418] + [s[5:] for s in sys.argv[1:] if s[:5]=='--mu='])[-1])
 
-  if len(sys.argv[1:])!=12:
-    arg12 = '1e4 1e4 1e4  .34e1 -.34e1 0   1.1e4 1.2e4 1.3e4  .29e1 -.29e1 0'.split()
-    while arg12: sys.argv.insert(1,arg12.pop())
+  argtail = '1e4 1e4 1e4  .34e1 -.34e1 -0.9   1.1e4 1.2e4 1.3e4  .29e1 -.29e1 0.8'.split()
+  arg12 += argtail[len(arg12)-12:]
 
-  stateChief = numpy.array(map(float,sys.argv[1:7]))
-  stateDeputy = numpy.array(map(float,sys.argv[7:13]))
+  stateChief = numpy.array(map(float,arg12[:6]))
+  stateDeputy = numpy.array(map(float,arg12[6:12]))
 
-  print(dict(stateChf=stateChief,stateDep=stateDeputy))
+  print(dict(stateChf=stateChief,stateDep=stateDeputy,arg12=arg12))
 
   va = VA2014(stateChief,muArg,stateDep=stateDeputy)
   zinvStateDeputy = va.inverseDeputy()
