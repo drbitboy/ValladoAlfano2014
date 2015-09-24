@@ -42,82 +42,6 @@ Deputy() method below; call it now if stateDep is provided
 
 mu = GM, km**3 s**-2
 
-=====================
-Note about arc length
-=====================
-
-Calculate the arc length from one position on an elliptical orbit
-to a second position on that same orbit, using E, the Incomplete
-Elliptic Integral of the Second Kind (IEISK).
-
-The ellipse semi-major axis length is a, the semi-minor axis length is
-b, and b <= a.
-
-Arguments:
-
-  eccSquared:  the ellipse eccentricity squared = (1 - (b/a)^2)
-               N.B. b <= a; 0 <= eccSquared <= 1
-               N.B. eccSquared equals ecc2 in the notes below
-               N.B. eccSquared is also known as the paramete", m = k^2
-               N.B. sqrt(eccSquared) is also known as the elliptic
-                    modulus or eccentricity, e = k = sin(alpha), where
-                    alpha is the modular angle
-
-  ea1 = the first position on the orbit, expressed as an eccentric
-        anomaly (angle, radians) positive from zero at the semi-major
-        axis toward the direction of the orbiting body
-
-  ea2 = the second position on the orbit, expressed as an eccentric
-        anomaly (angle, radians) positive from zero at the semi-major
-        axis toward the direction of the orbiting body
-
-Implementation:
-
-1) The arc length from a, the semi-major axis, is the definite integral
-of
-
-  a * sqrt(1 - ecc2 cos(ea)^2)
-
-evaluated from eccentric anomaly ea1 to ea2.
-
-2) However, the integral available, E, the Incomplete Elliptic Integral
-of the Second Kind, is the integral of
-
-  a * sqrt(1 - ecc2 sin(ea)^2)
-
-from eccentric anomaly zero to ea, which evalutates angles relative to a
-semi-MINOR axis a, with semi-MAJOR axis b, so a < b, and
-ecc2 = (1 - (a/b)^2).
-
-2.1) So E is off by PI/2 relative to the desired integral in (1) above.
-
-3) The solution is to use E to calculate the arc length from eccentric
-anomaly (PI/2 - ea) to eccentric anomaly (PI/2 - 0).  This is a variable
-substitution that effectively replaces cos(ea) in (1) with its
-equivalent sin(PI/2 - ea), and converts the integral in (1) to a form
-siimlar to that in (2), at which point E can be used.
-
-3.1) So
-
-  arcLength0 = a * integral(1-ecc2 cos(ea)^2,ea=0..ea1)
-             = a * integral(1-ecc2 sin(PI/2-ea)^2,ea=PI/2-ea1..PI/2)
-             = a * (E(PI/2,ecc2) - E(PI/2-ea1,ecc2))
-
-3.2) and similarly
-
-  arcLength1 = a (E(PI/2,ecc2) - E(PI/2-ea2,ecc2))
-
-3.3) and finally the desired arc length from ea1 to ea2 in (1) above
-
-  = arcLength1 - arcLength0
-  = a * ((E(PI/2,ecc2)-E(PI/2-ea2,ecc2)) - (E(PI/2,ecc2)-E(PI/2-ea1,ecc2)))
-  = a * (E(PI/2-ea1,ecc2) - E(PI/2-ea2,ecc2))
-
-3.4) Note the difference between the ea1 and ea2 terms are reverses0
-
-============================
-End of note about arc length
-============================
 """
     ####################################################################
     ### Extract ECI Positions and ECI velocities from 6-element ECI states
@@ -179,11 +103,6 @@ End of note about arc length
     ### Quadrant arc length; used later
     self.quadArc = self.aChf * E(halfpi,self.eccChfSquared)
 
-    ### Arc length from (positive) semi-major axis (length = self.aChf)
-    ### to Eccentric Anomaly ea; see docstring in orbit_IEISK below
-    self.E = lambda ea: self.quadArc - (self.aChf * E(halfpi-ea,self.eccChfSquared))
-    self.XYtoTrueAnom = lambda x,y: sp.recrad(sp.vpack(x-self.cChf,y,0.))[iRA]
-
     ####################################################################
     ### Equations (5)
     ### Chief True anomaly posiiton
@@ -198,16 +117,9 @@ End of note about arc length
     ### Equations (9) - chief only
 
     ### 9.1) Convert True Anomaly 1 (chief) to Eccentric Anomaly
-    ### - https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
-    ### - Possible exceptions:  divBy0; domain error.
-    self.TrueToEccAnom = lambda ta: sp.recrad(sp.vpack(self.eccChf + math.cos(ta)
-                                                      ,self.bOverA * math.sin(ta)
-                                                      ,0.
-                                                      )
-                                             )[iRA]
     self.eccAnom1 = self.TrueToEccAnom(self.trueAnom1)
 
-    ### Get the arc length to the chief
+    ### Get the arc length from periapse to the chief
     self.arcChf = self.E(self.eccAnom1)
 
     ####################################################################
@@ -303,7 +215,8 @@ performed in __init__() method above
                             , self.deltaPhiDep * rChf2
                             )
     self.velDepEqcm = sp.vpack( self.velDepSez[iZsez] - self.velChfRsw2[iRrsw]
-                              , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * self.deltaPhiDep)) - self.velChfRsw2[iE]
+                             #, (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] *          self.deltaPhiDep )) - self.velChfRsw1[iE]
+                              , (self.velDepSez[iE] * rChf2 / (RrdDepRsw1[iRadius] * math.cos(self.deltaPhiDep))) - self.velChfRsw1[iE]
                               , -self.velDepSez[iSsez] * rChf2 / RrdDepRsw1[iRadius]
                               )
 
@@ -401,9 +314,9 @@ performed in __init__() method above
     ### Equations (17)
     ### - final velocity displacements
     ### - Not working yet:  what is rChf?
-    rChf = sp.vnorm(self.rChfEci)
-    self.zinvVelDepSez = sp.vpack((velDepEqcm[iZeq] / rChf) * sezScale
-                                 ,(velDepEqcm[iAeq] + (self.velChfRsw1[iSrsw] / rChf)) * sezScale * math.cos(self.zinvDeltaPhiDep)
+    self.zinvVelDepSez = sp.vpack(-velDepEqcm[iZeq] * sezScale / rChf2
+                                #,(velDepEqcm[iAeq] + self.velChfRsw1[iSrsw]) * sezScale *          self.zinvDeltaPhiDep  / rChf2
+                                 ,(velDepEqcm[iAeq] + self.velChfRsw1[iSrsw]) * sezScale * math.cos(self.zinvDeltaPhiDep) / rChf2
                                  ,velDepEqcm[iReq] + self.zinvVelChfRsw2[iRrsw]
                                  )
     self.zinvVelDepRsw1 = sp.mtxv(self.zinvMtxRswToSez, self.zinvVelDepSez)
@@ -466,6 +379,108 @@ performed in __init__() method above
 
     return rtnIter and (eaGuess,itter,) or eaGuess
 
+
+  ######################################################################
+  def TrueToEccAnom(self,ta):
+    """Convert True Anomaly to Eccentric Anomaly
+
+https://en.wikipedia.org/wiki/Eccentric_anomaly#From_the_true_anomaly
+
+"""
+    return sp.recrad(sp.vpack(self.eccChf + math.cos(ta)
+                             ,self.bOverA * math.sin(ta)
+                             ,0.
+                             )
+                    )[iRA]
+
+  ######################################################################
+  def E(self,ea):
+    """Arc length from peripse to Eccentric Anomaly ea
+
+=====================
+Note about arc length
+=====================
+
+Calculate the arc length from one position on an elliptical orbit
+to a second position on that same orbit, using E, the Incomplete
+Elliptic Integral of the Second Kind (IEISK).
+
+The ellipse semi-major axis length is a, the semi-minor axis length is
+b, and b <= a.
+
+Arguments to IEISK:
+
+  eccSquared:  the ellipse eccentricity squared = (1 - (b/a)^2)
+               N.B. b <= a; 0 <= eccSquared <= 1
+               N.B. eccSquared equals ecc2 in the notes below
+               N.B. eccSquared is also known as the paramete", m = k^2
+               N.B. sqrt(eccSquared) is also known as the elliptic
+                    modulus or eccentricity, e = k = sin(alpha), where
+                    alpha is the modular angle
+
+  ea1 = the first position on the orbit, expressed as an eccentric
+        anomaly (angle, radians) positive from zero at the semi-major
+        axis toward the direction of the orbiting body
+
+  ea2 = the second position on the orbit, expressed as an eccentric
+        anomaly (angle, radians) positive from zero at the semi-major
+        axis toward the direction of the orbiting body
+
+Implementation:
+
+1) The arc length from a, the semi-major axis, is the definite integral
+of
+
+  a * sqrt(1 - ecc2 cos(ea)^2)
+
+evaluated from eccentric anomaly ea1 to ea2.
+
+2) However, the integral available, E, the Incomplete Elliptic Integral
+of the Second Kind, is the integral of
+
+  a * sqrt(1 - ecc2 sin(ea)^2)
+
+from eccentric anomaly zero to ea, which evalutates angles relative to a
+semi-MINOR axis a, with semi-MAJOR axis b, so a < b, and
+ecc2 = (1 - (a/b)^2).
+
+2.1) So E is off by PI/2 relative to the desired integral in (1) above.
+
+3) The solution is to use E to calculate the arc length from eccentric
+anomaly (PI/2 - ea) to eccentric anomaly (PI/2 - 0).  This is a variable
+substitution that effectively replaces cos(ea) in (1) with its
+equivalent sin(PI/2 - ea), and converts the integral in (1) to a form
+siimlar to that in (2), at which point E can be used.
+
+3.1) So
+
+  arcLength0 = a * integral(1-ecc2 cos(ea)^2,ea=0..ea1)
+             = a * integral(1-ecc2 sin(PI/2-ea)^2,ea=PI/2-ea1..PI/2)
+             = a * (E(PI/2,ecc2) - E(PI/2-ea1,ecc2))
+
+3.2) and similarly
+
+  arcLength1 = a (E(PI/2,ecc2) - E(PI/2-ea2,ecc2))
+
+3.3) and finally the desired arc length from ea1 to ea2 in (1) above
+
+  = arcLength1 - arcLength0
+  = a * ((E(PI/2,ecc2)-E(PI/2-ea2,ecc2)) - (E(PI/2,ecc2)-E(PI/2-ea1,ecc2)))
+  = a * (E(PI/2-ea1,ecc2) - E(PI/2-ea2,ecc2))
+
+3.4) Note the difference between the ea1 and ea2 terms are reverses0
+
+============================
+End of note about arc length
+============================
+
+"""
+    return self.quadArc - (self.aChf * E(halfpi-ea,self.eccChfSquared))
+
+
+  ######################################################################
+  def XYtoTrueAnom(self,x,y):
+    return sp.recrad(sp.vpack(x-self.cChf,y,0.))[iRA]
 
 ########################################################################
 def RVtoRSW(R,V):
