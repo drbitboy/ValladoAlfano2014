@@ -169,8 +169,8 @@ performed in __init__() method above
     pHat = self.vEccHatChf
     qHat = sp.ucrss([0.,0.,1.],pHat)
     self.rChfPqw2 = sp.vscl(rChf2,sp.vadd(sp.vscl(math.cos(self.trueAnom2),pHat),sp.vscl(math.sin(self.trueAnom2),qHat)))
-    self.velChfPqw2 = sp.vscl(-math.sqrt(self.mu/self.pChf)
-                             ,sp.vadd(sp.vscl(math.sin(self.trueAnom2),pHat)
+    self.velChfPqw2 = sp.vscl(math.sqrt(self.mu/self.pChf)
+                             ,sp.vadd(sp.vscl(           -math.sin(self.trueAnom2),pHat)
                                      ,sp.vscl(self.eccChf+math.cos(self.trueAnom2),qHat)
                                      )
                              )
